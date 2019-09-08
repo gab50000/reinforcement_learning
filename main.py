@@ -4,7 +4,7 @@ import numpy as np
 import torch
 
 
-def run(model, render=True):
+def run(model, max_steps=1000, render=True, sample=True, temperature=1):
     env = gym.make("CartPole-v0")
     env.reset()
     action = env.action_space.sample()
@@ -12,7 +12,7 @@ def run(model, render=True):
     states, action_probs, actions, rewards = [], [], [], []
     observation, _, done, info = env.step(action)
 
-    for n in range(1000):
+    for _ in range(max_steps):
         if done:
             rewards[-1] = -10
             break
@@ -24,8 +24,12 @@ def run(model, render=True):
 
         model_out = model(torch.from_numpy(observation).type(torch.float32))
         prob = model_out.detach().numpy().astype(float)
+        prob = np.exp(prob / temperature)
         prob /= prob.sum()
-        action = np.random.choice(2, p=prob)
+        if sample:
+            action = np.random.choice(2, p=prob)
+        else:
+            action = np.argmax(prob)
 
         observation, reward, done, info = env.step(action)
 
@@ -37,11 +41,11 @@ def run(model, render=True):
     return states, action_probs, actions, rewards
 
 
-def run_multiple(model, n):
+def run_multiple(model, n, temperature=1):
     states, action_probs, actions, rewards = [], [], [], []
     total_steps = 0
     for _ in range(n):
-        s, ap, a, rew = run(model, render=False)
+        s, ap, a, rew = run(model, render=False, temperature=temperature)
         total_steps += len(s)
         states.append(s)
         action_probs.append(ap)
@@ -90,7 +94,14 @@ def flatten(list_of_lists):
     return [x for list_ in list_of_lists for x in list_]
 
 
-def main(n_epochs=100, n_average=10, learning_rate=0.1, show=False):
+def train(
+    n_epochs=100,
+    n_average=10,
+    learning_rate=0.1,
+    show=False,
+    model_filename="",
+    temperature=1,
+):
     model = torch.nn.Sequential(
         torch.nn.Linear(4, 10),
         torch.nn.ReLU(),
@@ -98,7 +109,9 @@ def main(n_epochs=100, n_average=10, learning_rate=0.1, show=False):
         torch.nn.Softmax(dim=0),
     )
     for _ in range(n_epochs):
-        states, action_probs, actions, rewards = run_multiple(model, n_average)
+        states, action_probs, actions, rewards = run_multiple(
+            model, n_average, temperature=temperature
+        )
         states = flatten(states)
         action_probs = flatten(action_probs)
         actions = flatten(actions)
@@ -116,8 +129,16 @@ def main(n_epochs=100, n_average=10, learning_rate=0.1, show=False):
         )
 
         if show:
-            run(model, render=True)
+            run(model, render=True, sample=False)
+
+        if model_filename:
+            torch.save(model, model_filename)
+
+
+def run_model(filename):
+    model = torch.load(filename)
+    run(model, max_steps=1_000_000, sample=False)
 
 
 if __name__ == "__main__":
-    fire.Fire(main)
+    fire.Fire()
