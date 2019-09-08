@@ -4,8 +4,10 @@ import numpy as np
 import torch
 
 
-def run(model, max_steps=1000, render=True, sample=True, temperature=1):
-    env = gym.make("CartPole-v0")
+def run(
+    model, max_steps=1000, render=True, sample=True, temperature=1, game="CartPole-v0"
+):
+    env = gym.make(game)
     env.reset()
     action = env.action_space.sample()
 
@@ -14,7 +16,8 @@ def run(model, max_steps=1000, render=True, sample=True, temperature=1):
 
     for _ in range(max_steps):
         if done:
-            rewards[-1] = -10
+            if rewards[-1] >= 0:
+                rewards[-1] = -10
             break
 
         if render:
@@ -27,7 +30,7 @@ def run(model, max_steps=1000, render=True, sample=True, temperature=1):
         prob = np.exp(prob / temperature)
         prob /= prob.sum()
         if sample:
-            action = np.random.choice(2, p=prob)
+            action = np.random.choice(prob.size, p=prob)
         else:
             action = np.argmax(prob)
 
@@ -41,11 +44,11 @@ def run(model, max_steps=1000, render=True, sample=True, temperature=1):
     return states, action_probs, actions, rewards
 
 
-def run_multiple(model, n, temperature=1):
+def run_multiple(model, n, game, temperature=1):
     states, action_probs, actions, rewards = [], [], [], []
     total_steps = 0
     for _ in range(n):
-        s, ap, a, rew = run(model, render=False, temperature=temperature)
+        s, ap, a, rew = run(model, render=False, temperature=temperature, game=game)
         total_steps += len(s)
         states.append(s)
         action_probs.append(ap)
@@ -101,16 +104,21 @@ def train(
     show=False,
     model_filename="",
     temperature=1,
+    game="CartPole-v0",
+    action_size=2,
+    observation_size=4,
 ):
     model = torch.nn.Sequential(
-        torch.nn.Linear(4, 10),
+        torch.nn.Linear(observation_size, 30),
         torch.nn.ReLU(),
-        torch.nn.Linear(10, 2),
+        torch.nn.Linear(30, 30),
+        torch.nn.ReLU(),
+        torch.nn.Linear(30, action_size),
         torch.nn.Softmax(dim=0),
     )
     for _ in range(n_epochs):
         states, action_probs, actions, rewards = run_multiple(
-            model, n_average, temperature=temperature
+            model, n_average, temperature=temperature, game=game
         )
         states = flatten(states)
         action_probs = flatten(action_probs)
@@ -129,15 +137,15 @@ def train(
         )
 
         if show:
-            run(model, render=True, sample=False)
+            run(model, render=True, sample=False, game=game)
 
         if model_filename:
             torch.save(model, model_filename)
 
 
-def run_model(filename):
+def run_model(filename, game):
     model = torch.load(filename)
-    run(model, max_steps=1_000_000, sample=False)
+    run(model, max_steps=1_000_000, sample=False, game=game)
 
 
 if __name__ == "__main__":
