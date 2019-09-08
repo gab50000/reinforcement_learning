@@ -32,26 +32,31 @@ def run(model, render=True):
         action_probs.append(model_out)
         actions.append(action)
         rewards.append(reward)
-    else:
-        # no game over -> big reward
-        rewards[-1] = 10
-
-    print(f"Stop after {n} epochs")
-
     env.close()
 
     return states, action_probs, actions, rewards
 
 
-def normalize_rewards(rewards, discount_factor=0.9, normalize=False):
+def run_multiple(model, n):
+    states, action_probs, actions, rewards = [], [], [], []
+    total_steps = 0
+    for _ in range(n):
+        s, ap, a, rew = run(model, render=False)
+        total_steps += len(s)
+        states.append(s)
+        action_probs.append(ap)
+        actions.append(a)
+        rewards.append(rew)
+    print(f"On average {total_steps/n} steps")
+    return states, action_probs, actions, rewards
+
+
+def normalize_rewards(rewards, discount_factor=0.9):
     discounted = np.zeros(len(rewards))
     discounted[-1] = rewards[-1]
 
     for i in reversed(range(discounted.shape[0] - 1)):
         discounted[i] = rewards[i] + discount_factor * discounted[i + 1]
-
-    if normalize:
-        discounted = (discounted - discounted.mean()) / discounted.std()
 
     return discounted
 
@@ -63,8 +68,9 @@ def test_normalize_rewards():
     np.testing.assert_allclose(target, result)
 
 
-def evaluate(states, action_probs, actions, rewards, model, learning_rate=0.1):
-    discounted_rewards = normalize_rewards(rewards, normalize=True)
+def evaluate(
+    states, action_probs, actions, discounted_rewards, model, learning_rate=0.1
+):
     # check if the action in response to a given state led to a positive or
     # a negative reward
     # if yes, enforce this action
@@ -80,18 +86,37 @@ def evaluate(states, action_probs, actions, rewards, model, learning_rate=0.1):
             param.grad.zero_()
 
 
-def main(n_epochs=100, learning_rate=0.1):
+def flatten(list_of_lists):
+    return [x for list_ in list_of_lists for x in list_]
+
+
+def main(n_epochs=100, n_average=10, learning_rate=0.1, show=False):
     model = torch.nn.Sequential(
         torch.nn.Linear(4, 10),
         torch.nn.ReLU(),
         torch.nn.Linear(10, 2),
-        torch.nn.Sigmoid(),
+        torch.nn.Softmax(dim=0),
     )
     for _ in range(n_epochs):
-        states, action_probs, actions, rewards = run(model)
+        states, action_probs, actions, rewards = run_multiple(model, n_average)
+        states = flatten(states)
+        action_probs = flatten(action_probs)
+        actions = flatten(actions)
+        discounted_rewards = np.concatenate([normalize_rewards(rew) for rew in rewards])
+        discounted_rewards = (
+            discounted_rewards - discounted_rewards.mean()
+        ) / discounted_rewards.std()
         evaluate(
-            states, action_probs, actions, rewards, model, learning_rate=learning_rate
+            states,
+            action_probs,
+            actions,
+            discounted_rewards,
+            model,
+            learning_rate=learning_rate,
         )
+
+        if show:
+            run(model, render=True)
 
 
 if __name__ == "__main__":
