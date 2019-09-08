@@ -107,6 +107,7 @@ def train(
     game="CartPole-v0",
     action_size=2,
     observation_size=4,
+    discount_factor=0.9,
 ):
     model = torch.nn.Sequential(
         torch.nn.Linear(observation_size, 30),
@@ -123,7 +124,9 @@ def train(
         states = flatten(states)
         action_probs = flatten(action_probs)
         actions = flatten(actions)
-        discounted_rewards = np.concatenate([normalize_rewards(rew) for rew in rewards])
+        discounted_rewards = np.concatenate(
+            [normalize_rewards(rew, discount_factor=discount_factor) for rew in rewards]
+        )
         discounted_rewards = (
             discounted_rewards - discounted_rewards.mean()
         ) / discounted_rewards.std()
