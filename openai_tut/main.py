@@ -18,7 +18,7 @@ class LogPolicy(torch.nn.Module):
         return torch.log_softmax(self.policy(x), dim=-1)
 
 
-def discounted_rewards(rewards, gamma):
+def discounted_rewards(rewards, gamma=0.9):
     dr = np.zeros(len(rewards))
     dr[-1] = rewards[-1]
     for i in reversed(range(len(rewards) - 1)):
@@ -28,27 +28,40 @@ def discounted_rewards(rewards, gamma):
 
 def train_one_epoch(env, policy, *, n_epochs=50, batch_size=5000, render=False):
     batch_observations = []
-    actions = []
+    batch_actions = []
+    batch_action_probs = []
     batch_rewards = []
     episode_lengths = []
 
-    obs = env.reset()
-
     for ep in range(n_epochs):
-        if render:
-            env.render()
 
-        action_probs = policy(torch.from_numpy(obs).type(torch.float32))
-        action = torch.multinomial(torch.exp(action_probs), 1).detach().item()
+        observations, actions, action_probs, rewards = [], [], [], []
 
-        obs, rew, done, _ = env.step(action)
+        obs = env.reset()
 
-        batch_observations.append(obs)
-        actions.append(action)
-        batch_rewards.append(rew)
+        while True:
+            if render:
+                env.render()
 
-        if done:
-            break
+            action_prob = policy(torch.from_numpy(obs).type(torch.float32))
+            action = torch.multinomial(torch.exp(action_prob), 1).detach().item()
+
+            obs, rew, done, _ = env.step(action)
+
+            observations.append(obs)
+            actions.append(action)
+            action_probs.append(action_prob)
+            rewards.append(rew)
+
+            if done:
+                episode_len = len(rewards)
+                batch_observations += observations
+                batch_actions += actions
+                action_probs = torch.stack(action_probs)
+                batch_action_probs.append(action_probs[range(episode_len), actions])
+                batch_rewards.append(discounted_rewards(rewards))
+                break
+        breakpoint()
 
 
 def main(env_name, n_hidden=30):
