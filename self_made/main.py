@@ -55,6 +55,7 @@ def run_multiple(model, n, game, temperature=1):
         actions.append(a)
         rewards.append(rew)
     print(f"On average {total_steps/n} steps")
+    print(f"On average {np.average([sum(r) for r in rewards]):.02f} rewards")
     return states, action_probs, actions, rewards
 
 
@@ -111,6 +112,8 @@ def train(
 ):
     model = torch.nn.Sequential(
         torch.nn.Linear(observation_size, 30),
+        torch.nn.ReLU(),
+        torch.nn.Linear(30, 30),
         torch.nn.ReLU(),
         torch.nn.Linear(30, 30),
         torch.nn.ReLU(),

@@ -1,3 +1,7 @@
 *
 !*.py
 !.gitignore
+!*.md
+!*/
+.vscode/
+.mypy_cache/
