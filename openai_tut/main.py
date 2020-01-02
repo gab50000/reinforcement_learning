@@ -33,6 +33,11 @@ def discounted_rewards(rewards, gamma=0.9):
     return dr
 
 
+def calc_loss(action_probs, discounted_rewards):
+    log_probs = torch.log(action_probs)
+    return torch.mean(discounted_rewards * action_probs)
+
+
 def train_one_epoch(env, policy, *, batch_size=5000, render=False):
     # put all observations, actions, action probabilities and rewards
     # into these lists
@@ -43,7 +48,6 @@ def train_one_epoch(env, policy, *, batch_size=5000, render=False):
     episode_lengths = []
 
     # undiscounted rewards
-    action_probs = []
     rewards = []
 
     obs = env.reset()
@@ -63,9 +67,9 @@ def train_one_epoch(env, policy, *, batch_size=5000, render=False):
         rewards.append(rew)
 
         if done:
-            print("Number of observations:", len(batch_observations))
+            print("Number of observations:", len(batch_observations), end="\r")
             episode_len = len(rewards)
-            batch_rewards.append(discounted_rewards(rewards))
+            batch_rewards.append(torch.from_numpy(discounted_rewards(rewards)))
             episode_lengths.append(episode_len)
 
             if len(batch_observations) >= batch_size:
@@ -76,6 +80,7 @@ def train_one_epoch(env, policy, *, batch_size=5000, render=False):
 
     batch_action_probs = torch.stack(batch_action_probs)
     batch_action_probs = batch_action_probs[range(sum(episode_lengths)), batch_actions]
+    batch_rewards = torch.cat(batch_rewards)
 
     return TrainingResult(
         batch_observations, batch_actions, batch_action_probs, batch_rewards
@@ -83,10 +88,17 @@ def train_one_epoch(env, policy, *, batch_size=5000, render=False):
 
 
 def train(env, policy, *, n_epochs=50, batch_size=5000, render=False):
+    optim = torch.optim.Adam(policy.parameters(), lr=0.01)
+
     for ep in range(n_epochs):
         obs, actions, probs, rewards = train_one_epoch(
             env, policy, batch_size=batch_size, render=render
         )
+        optim.zero_grad()
+        loss = calc_loss(probs, rewards)
+        print(f"\nLoss: {loss.item():.2f}")
+        loss.backward()
+        optim.step()
 
 
 def main(env_name, n_hidden=30, render=False):
@@ -96,7 +108,7 @@ def main(env_name, n_hidden=30, render=False):
 
     pol = LogPolicy(n_obs, n_hidden, n_actions)
 
-    train_one_epoch(env, pol, render=render)
+    train(env, pol, render=render)
 
 
 if __name__ == "__main__":
