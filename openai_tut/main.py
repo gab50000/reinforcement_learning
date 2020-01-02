@@ -1,7 +1,14 @@
+from collections import namedtuple
+
 import fire
 import torch
 import numpy as np
 import gym
+
+
+TrainingResult = namedtuple(
+    "TrainingResult", "observations, actions, probabilities, rewards"
+)
 
 
 class LogPolicy(torch.nn.Module):
@@ -26,52 +33,70 @@ def discounted_rewards(rewards, gamma=0.9):
     return dr
 
 
-def train_one_epoch(env, policy, *, n_epochs=50, batch_size=5000, render=False):
+def train_one_epoch(env, policy, *, batch_size=5000, render=False):
+    # put all observations, actions, action probabilities and rewards
+    # into these lists
     batch_observations = []
     batch_actions = []
     batch_action_probs = []
     batch_rewards = []
     episode_lengths = []
 
-    for ep in range(n_epochs):
+    # undiscounted rewards
+    action_probs = []
+    rewards = []
 
-        observations, actions, action_probs, rewards = [], [], [], []
+    obs = env.reset()
 
-        obs = env.reset()
+    while True:
+        if render:
+            env.render()
 
-        while True:
-            if render:
-                env.render()
+        action_prob = policy(torch.from_numpy(obs).type(torch.float32))
+        action = torch.multinomial(torch.exp(action_prob), 1).detach().item()
 
-            action_prob = policy(torch.from_numpy(obs).type(torch.float32))
-            action = torch.multinomial(torch.exp(action_prob), 1).detach().item()
+        obs, rew, done, _ = env.step(action)
 
-            obs, rew, done, _ = env.step(action)
+        batch_observations.append(obs)
+        batch_actions.append(action)
+        batch_action_probs.append(action_prob)
+        rewards.append(rew)
 
-            observations.append(obs)
-            actions.append(action)
-            action_probs.append(action_prob)
-            rewards.append(rew)
+        if done:
+            print("Number of observations:", len(batch_observations))
+            episode_len = len(rewards)
+            batch_rewards.append(discounted_rewards(rewards))
+            episode_lengths.append(episode_len)
 
-            if done:
-                episode_len = len(rewards)
-                batch_observations += observations
-                batch_actions += actions
-                action_probs = torch.stack(action_probs)
-                batch_action_probs.append(action_probs[range(episode_len), actions])
-                batch_rewards.append(discounted_rewards(rewards))
+            if len(batch_observations) >= batch_size:
                 break
-        breakpoint()
+
+            obs = env.reset()
+            rewards = []
+
+    batch_action_probs = torch.stack(batch_action_probs)
+    batch_action_probs = batch_action_probs[range(sum(episode_lengths)), batch_actions]
+
+    return TrainingResult(
+        batch_observations, batch_actions, batch_action_probs, batch_rewards
+    )
 
 
-def main(env_name, n_hidden=30):
+def train(env, policy, *, n_epochs=50, batch_size=5000, render=False):
+    for ep in range(n_epochs):
+        obs, actions, probs, rewards = train_one_epoch(
+            env, policy, batch_size=batch_size, render=render
+        )
+
+
+def main(env_name, n_hidden=30, render=False):
     env = gym.make(env_name)
     n_obs = env.observation_space.shape[0]
     n_actions = env.action_space.n
 
     pol = LogPolicy(n_obs, n_hidden, n_actions)
 
-    train_one_epoch(env, pol, render=True)
+    train_one_epoch(env, pol, render=render)
 
 
 if __name__ == "__main__":
