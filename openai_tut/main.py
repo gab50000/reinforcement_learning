@@ -35,10 +35,40 @@ def discounted_rewards(rewards, gamma=0.9):
 
 def calc_loss(action_probs, discounted_rewards):
     log_probs = torch.log(action_probs)
-    return torch.mean(discounted_rewards * action_probs)
+    return -torch.mean(discounted_rewards * action_probs)
+
+
+def run_one_episode(env, policy, *, render=False):
+    obs = env.reset()
+
+    observations, actions, action_probs, rewards = [], [], [], []
+
+    while True:
+        if render:
+            env.render()
+
+        action_prob = policy(torch.from_numpy(obs).type(torch.float32))
+        action = torch.multinomial(torch.exp(action_prob), 1).detach().item()
+
+        obs, rew, done, _ = env.step(action)
+
+        observations.append(obs)
+        actions.append(action)
+        action_probs.append(action_prob)
+        rewards.append(rew)
+
+        if done:
+            break
+
+    rewards = torch.from_numpy(discounted_rewards(rewards))
+
+    return observations, actions, action_probs, rewards
 
 
 def train_one_batch(env, policy, *, batch_size=5000, render=False):
+    """
+    Runs and restarts the environment until the desired batch size has been reached.
+    """
     # put all observations, actions, action probabilities and rewards
     # into these lists
     batch_observations = []
@@ -106,15 +136,20 @@ def train(env, policy, *, n_epochs=50, batch_size=5000, render=False):
         loss.backward()
         optim.step()
 
+        if render:
+            run_one_episode(env, policy, render=render)
 
-def main(env_name, n_hidden=30, render=False):
+
+def main(env_name, *, n_hidden=30, n_epochs=50, batch_size=5000, render=False):
     env = gym.make(env_name)
     n_obs = env.observation_space.shape[0]
     n_actions = env.action_space.n
 
     pol = LogPolicy(n_obs, n_hidden, n_actions)
 
-    train(env, pol, render=render)
+    train(env, pol, n_epochs=n_epochs, batch_size=batch_size, render=render)
+
+    env.close()
 
 
 if __name__ == "__main__":
