@@ -7,7 +7,7 @@ import gym
 
 
 TrainingResult = namedtuple(
-    "TrainingResult", "observations, actions, probabilities, rewards"
+    "TrainingResult", "observations, actions, probabilities, rewards, lengths"
 )
 
 
@@ -38,7 +38,7 @@ def calc_loss(action_probs, discounted_rewards):
     return torch.mean(discounted_rewards * action_probs)
 
 
-def train_one_epoch(env, policy, *, batch_size=5000, render=False):
+def train_one_batch(env, policy, *, batch_size=5000, render=False):
     # put all observations, actions, action probabilities and rewards
     # into these lists
     batch_observations = []
@@ -83,7 +83,11 @@ def train_one_epoch(env, policy, *, batch_size=5000, render=False):
     batch_rewards = torch.cat(batch_rewards)
 
     return TrainingResult(
-        batch_observations, batch_actions, batch_action_probs, batch_rewards
+        batch_observations,
+        batch_actions,
+        batch_action_probs,
+        batch_rewards,
+        episode_lengths,
     )
 
 
@@ -91,12 +95,14 @@ def train(env, policy, *, n_epochs=50, batch_size=5000, render=False):
     optim = torch.optim.Adam(policy.parameters(), lr=0.01)
 
     for ep in range(n_epochs):
-        obs, actions, probs, rewards = train_one_epoch(
-            env, policy, batch_size=batch_size, render=render
+        training_result = train_one_batch(
+            env, policy, batch_size=batch_size, render=False
         )
+        obs, actions, probs, rewards, ep_lengths = training_result
         optim.zero_grad()
         loss = calc_loss(probs, rewards)
         print(f"\nLoss: {loss.item():.2f}")
+        print("Average episode length:", sum(ep_lengths) / len(ep_lengths))
         loss.backward()
         optim.step()
 
