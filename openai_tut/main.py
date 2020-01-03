@@ -7,7 +7,7 @@ import gym
 
 
 TrainingResult = namedtuple(
-    "TrainingResult", "observations, actions, probabilities, rewards, lengths"
+    "TrainingResult", "observations, actions, probabilities, rewards, length"
 )
 
 
@@ -60,12 +60,12 @@ def run_one_episode(env, policy, *, render=False):
         if done:
             break
 
-    rewards = torch.from_numpy(discounted_rewards(rewards))
+    rewards = discounted_rewards(rewards).tolist()
 
-    return observations, actions, action_probs, rewards
+    return TrainingResult(observations, actions, action_probs, rewards, len(rewards))
 
 
-def train_one_batch(env, policy, *, batch_size=5000, render=False):
+def run_one_batch(env, policy, *, batch_size=5000, render=False):
     """
     Runs and restarts the environment until the desired batch size has been reached.
     """
@@ -77,40 +77,24 @@ def train_one_batch(env, policy, *, batch_size=5000, render=False):
     batch_rewards = []
     episode_lengths = []
 
-    # undiscounted rewards
-    rewards = []
-
-    obs = env.reset()
-
     while True:
-        if render:
-            env.render()
+        training_result = run_one_episode(env, policy)
+        obs, actions, action_probs, rew, len_ = training_result
 
-        action_prob = policy(torch.from_numpy(obs).type(torch.float32))
-        action = torch.multinomial(torch.exp(action_prob), 1).detach().item()
+        batch_observations += obs
+        batch_actions += actions
+        batch_action_probs += action_probs
+        batch_rewards += rew
+        episode_lengths.append(len_)
 
-        obs, rew, done, _ = env.step(action)
-
-        batch_observations.append(obs)
-        batch_actions.append(action)
-        batch_action_probs.append(action_prob)
-        rewards.append(rew)
-
-        if done:
-            print("Number of observations:", len(batch_observations), end="\r")
-            episode_len = len(rewards)
-            batch_rewards.append(torch.from_numpy(discounted_rewards(rewards)))
-            episode_lengths.append(episode_len)
-
-            if len(batch_observations) >= batch_size:
-                break
-
-            obs = env.reset()
-            rewards = []
+        obs_len = len(batch_observations)
+        print(f"{obs_len} samples", end="\r")
+        if obs_len >= batch_size:
+            break
 
     batch_action_probs = torch.stack(batch_action_probs)
     batch_action_probs = batch_action_probs[range(sum(episode_lengths)), batch_actions]
-    batch_rewards = torch.cat(batch_rewards)
+    batch_rewards = torch.from_numpy(np.array(batch_rewards))
 
     return TrainingResult(
         batch_observations,
@@ -125,14 +109,17 @@ def train(env, policy, *, n_epochs=50, batch_size=5000, render=False):
     optim = torch.optim.Adam(policy.parameters(), lr=0.01)
 
     for ep in range(n_epochs):
-        training_result = train_one_batch(
+        training_result = run_one_batch(
             env, policy, batch_size=batch_size, render=False
         )
         obs, actions, probs, rewards, ep_lengths = training_result
         optim.zero_grad()
         loss = calc_loss(probs, rewards)
         print(f"\nLoss: {loss.item():.2f}")
-        print("Average episode length:", sum(ep_lengths) / len(ep_lengths))
+        print("Average episode length:", np.mean(ep_lengths))
+        print("Median episode length:", np.median(ep_lengths))
+        print("Longest episode:", max(ep_lengths))
+        print("Shortest episode:", min(ep_lengths))
         loss.backward()
         optim.step()
 
