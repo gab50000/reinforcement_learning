@@ -105,7 +105,7 @@ def run_one_batch(env, policy, *, batch_size=5000, render=False):
     )
 
 
-def train(env, policy, *, n_epochs=50, batch_size=5000, render=False):
+def train(env, policy, *, n_epochs=50, batch_size=5000, render=False, normalize=False):
     optim = torch.optim.Adam(policy.parameters(), lr=0.01)
 
     for ep in range(n_epochs):
@@ -113,6 +113,10 @@ def train(env, policy, *, n_epochs=50, batch_size=5000, render=False):
             env, policy, batch_size=batch_size, render=False
         )
         obs, actions, probs, rewards, ep_lengths = training_result
+
+        if normalize:
+            rewards = (rewards - rewards.mean()) / rewards.std()
+
         optim.zero_grad()
         loss = calc_loss(probs, rewards)
         print(f"\nLoss: {loss.item():.2f}")
@@ -127,14 +131,29 @@ def train(env, policy, *, n_epochs=50, batch_size=5000, render=False):
             run_one_episode(env, policy, render=render)
 
 
-def main(env_name, *, n_hidden=30, n_epochs=50, batch_size=5000, render=False):
+def main(
+    env_name,
+    *,
+    n_hidden=30,
+    n_epochs=50,
+    batch_size=5000,
+    render=False,
+    normalize=False,
+):
     env = gym.make(env_name)
     n_obs = env.observation_space.shape[0]
     n_actions = env.action_space.n
 
     pol = LogPolicy(n_obs, n_hidden, n_actions)
 
-    train(env, pol, n_epochs=n_epochs, batch_size=batch_size, render=render)
+    train(
+        env,
+        pol,
+        n_epochs=n_epochs,
+        batch_size=batch_size,
+        render=render,
+        normalize=normalize,
+    )
 
     env.close()
 
